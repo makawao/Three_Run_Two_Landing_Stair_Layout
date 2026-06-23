@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Three-Run Stair Solver</title>
+<style>
+  :root {
+    --paper:      #eef1f3;
+    --panel:      #f8fafb;
+    --ink:        #14222b;
+    --ink-soft:   #4a5e69;
+    --line:       #c2ced4;
+    --line-fine:  #d8e0e4;
+    --accent:     #1f5f8b;   /* drafting blue */
+    --accent-2:   #b4452b;   /* annotation red */
+    --good-bg:    #e7f0ea;
+    --good-line:  #3f7d52;
+    --warn-bg:    #fbf1da;
+    --warn-line:  #b8852a;
+    --err-bg:     #f7e2dd;
+    --err-line:   #b4452b;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 80px; }
+
+  /* ---- header ---- */
+  header { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 26px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  h1 {
+    font-size: clamp(26px, 5vw, 40px);
+    line-height: 1.04;
+    letter-spacing: -.01em;
+    margin: 0 0 10px;
+    font-weight: 650;
+  }
+  .lede { max-width: 60ch; color: var(--ink-soft); margin: 0; font-size: 15px; }
+
+  /* ---- schematic ---- */
+  .schematic {
+    margin: 22px 0 0;
+    border: 1px solid var(--line);
+    background:
+      linear-gradient(var(--line-fine) 1px, transparent 1px) 0 0 / 100% 22px,
+      var(--panel);
+    padding: 18px;
+  }
+  .schematic svg { width: 100%; height: auto; display: block; max-width: 380px; margin: 0 auto; }
+  .schematic figcaption {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    text-align: center; margin-top: 10px; letter-spacing: .04em;
+  }
+
+  /* ---- section headings ---- */
+  .sec-label {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--ink-soft);
+    display: flex; align-items: center; gap: 12px; margin: 32px 0 14px;
+  }
+  .sec-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  /* ---- inputs ---- */
+  .panel { border: 1px solid var(--line); background: var(--panel); padding: 22px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px 20px; }
+  fieldset {
+    border: 1px solid var(--line-fine); margin: 0; padding: 14px 14px 16px;
+    grid-column: span 3; display: grid; gap: 12px;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  fieldset.range { grid-template-columns: 1fr 1fr; }
+  legend {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--accent); padding: 0 8px;
+  }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12.5px; color: var(--ink-soft); }
+  .field .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); opacity: .8; }
+  input[type="number"] {
+    font-family: var(--mono); font-size: 15px; color: var(--ink);
+    background: #fff; border: 1px solid var(--line);
+    padding: 9px 10px; width: 100%; border-radius: 0;
+    -moz-appearance: textfield;
+  }
+  input[type="number"]:focus {
+    outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent);
+  }
+
+  .actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+  button {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    border: 1px solid var(--ink); background: var(--ink); color: #fff;
+    padding: 12px 22px; cursor: pointer; border-radius: 0;
+  }
+  button:hover { background: var(--accent); border-color: var(--accent); }
+  button.ghost { background: transparent; color: var(--ink); }
+  button.ghost:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+  /* ---- messages ---- */
+  .messages { margin: 20px 0 0; display: grid; gap: 8px; }
+  .msg {
+    font-family: var(--mono); font-size: 12.5px; padding: 10px 14px;
+    border-left: 3px solid; display: flex; gap: 10px;
+  }
+  .msg .tag { font-weight: 700; letter-spacing: .08em; }
+  .msg.error   { background: var(--err-bg);  border-color: var(--err-line);  color: #5e2418; }
+  .msg.warning { background: var(--warn-bg); border-color: var(--warn-line); color: #6b4a14; }
+  .msg.error   .tag { color: var(--err-line); }
+  .msg.warning .tag { color: var(--warn-line); }
+
+  /* ---- adjusted inputs echo ---- */
+  .echo {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+    margin: 16px 0 0; display: flex; flex-wrap: wrap; gap: 6px 18px;
+  }
+  .echo b { color: var(--ink); font-weight: 600; }
+
+  /* ---- results ---- */
+  .solution { border: 1px solid var(--line); margin-top: 18px; background: var(--panel); }
+  .sol-head {
+    background: var(--ink); color: #fff; padding: 12px 16px;
+    display: flex; flex-wrap: wrap; gap: 4px 26px; align-items: baseline;
+  }
+  .sol-head .sid { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+  .sol-head .pair { font-family: var(--mono); font-size: 13px; }
+  .sol-head .pair b { color: #9fd0ec; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+  .tscroll { overflow-x: auto; }
+  th, td { text-align: right; padding: 9px 14px; white-space: nowrap; }
+  th {
+    font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-soft); border-bottom: 1px solid var(--line);
+    font-weight: 600;
+  }
+  td { border-bottom: 1px solid var(--line-fine); }
+  tbody tr:last-child td { border-bottom: none; }
+  td.idx { color: var(--ink-soft); text-align: left; }
+  .frac { color: var(--ink-soft); font-size: 11px; }
+
+  /* row selection */
+  td.pickcell { text-align: left; padding: 6px 14px; }
+  button.pick {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    padding: 5px 11px; background: transparent; color: var(--ink);
+    border: 1px solid var(--line); cursor: pointer;
+  }
+  button.pick:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  tbody tr.sel td { background: var(--good-bg); }
+  tbody tr.sel td.idx { color: var(--good-line); font-weight: 700; }
+  tbody tr.sel button.pick { background: var(--good-line); color: #fff; border-color: var(--good-line); }
+
+  /* schematic controls + hint */
+  .schematic-ctrl { text-align: center; margin-top: 12px; }
+  button.mini {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 8px 16px; background: transparent; color: var(--ink); border: 1px solid var(--ink); cursor: pointer;
+  }
+  button.mini:hover { background: var(--ink); color: #fff; }
+  .pick-hint { font-family: var(--mono); font-size: 12px; color: var(--accent); margin: 0 0 10px; }
+
+  .empty {
+    border: 1px dashed var(--line); padding: 28px; text-align: center;
+    color: var(--ink-soft); font-family: var(--mono); font-size: 13px; margin-top: 18px;
+  }
+  .count { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); margin: 0 0 4px; }
+
+  /* no-solution / reduce-Ed panel */
+  .noflow { border: 1px solid var(--warn-line); background: var(--warn-bg); padding: 22px; margin-top: 6px; }
+  .nf-title { font-family: var(--mono); font-size: 14px; font-weight: 700; color: #6b4a14; margin: 0 0 8px; }
+  .nf-body { font-size: 14px; color: #5b4410; margin: 0 0 16px; max-width: 64ch; line-height: 1.55; }
+  .nf-body b { font-family: var(--mono); }
+  button.apply {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 11px 20px; background: var(--ink); color: #fff; border: 1px solid var(--ink); cursor: pointer;
+  }
+  button.apply:hover { background: var(--accent); border-color: var(--accent); }
+
+  footer {
+    margin-top: 46px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft); line-height: 1.7;
+  }
+  footer code { color: var(--accent); }
+
+  @media (max-width: 720px) {
+    .grid, fieldset { grid-template-columns: 1fr 1fr; }
+    fieldset { grid-column: 1 / -1; }
+    fieldset.envelope { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 460px) {
+    .grid, fieldset, fieldset.envelope, fieldset.range { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Straight-run · double-switchback · plan + rise</p>
+    <h1>Three-Run Stair Solver</h1>
+    <p class="lede">Enter the stair envelope, the floor-to-floor rise, and the allowable ranges.
+       The solver returns every tread layout that fits the footprint and lands inside your rise and comfort limits.
+       Riser height is held constant across all three runs.</p>
+
+    <figure class="schematic" id="schematic"></figure>
+  </header>
+
+  <!-- ============ INPUTS ============ -->
+  <div class="sec-label">Inputs</div>
+  <div class="panel">
+    <div class="grid">
+
+      <fieldset class="envelope">
+        <legend>Envelope &amp; rise</legend>
+        <div class="field">
+          <label for="Ed">Ed — envelope depth</label>
+          <input type="number" id="Ed" step="0.0001" value="160.40625">
+          <span class="sub">inches</span>
+        </div>
+        <div class="field">
+          <label for="Ew">Ew — envelope width</label>
+          <input type="number" id="Ew" step="0.0001" value="137.0625">
+          <span class="sub">inches</span>
+        </div>
+        <div class="field">
+          <label for="Rt">Rt — finish floor to finish floor</label>
+          <input type="number" id="Rt" step="0.0001" value="166.375">
+          <span class="sub">inches</span>
+        </div>
+      </fieldset>
+
+      <fieldset class="range">
+        <legend>Tw — tread / stair width range</legend>
+        <div class="field">
+          <label for="twLo">Lower</label>
+          <input type="number" id="twLo" step="0.0001" value="36">
+          <span class="sub" id="twLoNote">code min 36"</span>
+        </div>
+        <div class="field">
+          <label for="twHi">Upper</label>
+          <input type="number" id="twHi" step="0.0001" value="52">
+          <span class="sub">no code max</span>
+        </div>
+      </fieldset>
+
+      <fieldset class="range">
+        <legend>Td — tread depth range</legend>
+        <div class="field">
+          <label for="tdLo">Lower</label>
+          <input type="number" id="tdLo" step="0.0001" value="11">
+          <span class="sub" id="tdLoNote">code min 11"</span>
+        </div>
+        <div class="field">
+          <label for="tdHi">Upper</label>
+          <input type="number" id="tdHi" step="0.0001" value="13">
+          <span class="sub" id="tdHiNote">code max 13"</span>
+        </div>
+      </fieldset>
+
+      <fieldset class="range">
+        <legend>2R + Td — stair comfort range</legend>
+        <div class="field">
+          <label for="cmLo">Lower</label>
+          <input type="number" id="cmLo" step="0.0001" value="24">
+          <span class="sub">inches</span>
+        </div>
+        <div class="field">
+          <label for="cmHi">Upper</label>
+          <input type="number" id="cmHi" step="0.0001" value="25">
+          <span class="sub">inches</span>
+        </div>
+      </fieldset>
+
+    </div>
+
+    <div class="actions">
+      <button id="run">Solve layouts</button>
+      <button id="reset" class="ghost">Reset defaults</button>
+    </div>
+
+    <div class="messages" id="messages"></div>
+    <div class="echo" id="echo"></div>
+  </div>
+
+  <!-- ============ RESULTS ============ -->
+  <div class="sec-label">Solutions</div>
+  <div id="results"></div>
+
+  <footer>
+    Held constant: rise per tread <code>R = Rt / (Tn1+Tn2+Tn3+Ln+1)</code>, with <code>Ln = 2</code> landings.
+    Riser range <code>6"–7.5"</code> and code limits below are project constants — edit them at the top of the script for a different occupancy or code path.<br>
+    Code constants: Tw min 36" · Td min 11" · Td max 13". (IBC 1011.2 requires 44" width above 50 occupants; IRC residential allows 10" treads / 7.75" risers. The 13" tread cap is project-defined, not an IBC maximum.)
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================
+   CODE CONSTANTS  —  edit to match your occupancy / code path
+   ============================================================ */
+const CODE = {
+  TW_MIN: 36,    // minimum stair width  (IBC 1011.2: 44" if occupant load >= 50; 36" otherwise / IRC residential)
+  TD_MIN: 11,    // minimum tread depth  (IBC 1011.5.2; IRC residential allows 10")
+  TD_MAX: 13,    // upper tread depth     (PROJECT-defined cap, not a true IBC maximum)
+  R_MIN: 6.0,    // lower riser bound     (IBC minimum riser is 4")
+  R_MAX: 7.5,    // upper riser bound     (IBC max 7"; IRC residential 7.75")
+  LN: 2          // landings in a three-run stair (fixed)
+};
+
+const EPS = 1e-9;  // float tolerance on range comparisons
+
+/* ---------- fraction helper (nearest 1/64") ---------- */
+function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+function toFraction(x) {
+  const denom = 64;
+  const sign = x < 0 ? "-" : "";
+  x = Math.abs(x);
+  let whole = Math.floor(x);
+  let num = Math.round((x - whole) * denom);
+  if (num === denom) { whole += 1; num = 0; }
+  if (num === 0) return sign + whole + '"';
+  const g = gcd(num, denom);
+  const frac = (num / g) + "/" + (denom / g);
+  return sign + (whole > 0 ? whole + " " : "") + frac + '"';
+}
+function dec(x, p = 4) { return Number(x.toFixed(p)).toString(); }
+
+/* ---------- input validation ---------- */
+function validateTw(lo, hi, msgs) {
+  if (lo < CODE.TW_MIN) {
+    msgs.push({ type: "error",
+      text: `Tw lower bound ${dec(lo)}" is below the code minimum of ${CODE.TW_MIN}". Substituting ${CODE.TW_MIN}".` });
+    lo = CODE.TW_MIN;
+  }
+  if (hi < lo) {
+    msgs.push({ type: "warning",
+      text: `Tw upper bound ${dec(hi)}" is less than the lower bound ${dec(lo)}". Substituting ${dec(lo)}".` });
+    hi = lo;
+  }
+  return [lo, hi];
+}
+
+function validateTd(lo, hi, msgs) {
+  if (lo < CODE.TD_MIN) {
+    msgs.push({ type: "error",
+      text: `Td lower bound ${dec(lo)}" is below the code minimum of ${CODE.TD_MIN}". Substituting ${CODE.TD_MIN}".` });
+    lo = CODE.TD_MIN;
+  }
+  if (hi > CODE.TD_MAX) {
+    msgs.push({ type: "error",
+      text: `Td upper bound ${dec(hi)}" exceeds the code maximum of ${CODE.TD_MAX}". Substituting ${CODE.TD_MAX}".` });
+    hi = CODE.TD_MAX;
+  }
+  if (hi < lo) {
+    msgs.push({ type: "warning",
+      text: `Td upper bound ${dec(hi)}" is less than the lower bound ${dec(lo)}". Substituting ${dec(lo)}".` });
+    hi = lo;
+  }
+  return [lo, hi];
+}
+
+function validateComfort(lo, hi, msgs) {
+  if (hi < lo) {
+    msgs.push({ type: "warning",
+      text: `2R+Td upper bound ${dec(hi)}" is less than the lower bound ${dec(lo)}". Substituting ${dec(lo)}".` });
+    hi = lo;
+  }
+  return [lo, hi];
+}
+
+/* ---------- solver ---------- */
+function solve(p) {
+  const out = [];
+  const { Ed, Ew, Rt, twLo, twHi, tdLo, tdHi, cmLo, cmHi } = p;
+  const base2R3 = (Tn2, Tn3) => Tn2 + Tn3 + CODE.LN + 1; // constant riser offset for a geometry
+
+  for (let Tn3 = 1; Tn3 <= 80; Tn3++) {
+    for (let Tn2 = 1; Tn2 <= 80; Tn2++) {
+      const denom = Tn2 - 2 * Tn3;
+      if (denom === 0) continue;
+      const Td = (Ew - 2 * Ed) / denom;
+      const Tw = Ed - Tn3 * Td;
+      if (Td < tdLo - EPS || Td > tdHi + EPS) continue;
+      if (Tw < twLo - EPS || Tw > twHi + EPS) continue;
+
+      const rows = [];
+      const offset = base2R3(Tn2, Tn3);
+      for (let Nr = 1; Nr <= 120; Nr++) {
+        const R = Rt / Nr;
+        if (R <= CODE.R_MIN + EPS || R >= CODE.R_MAX - EPS) continue;
+        const Tn1 = Nr - offset;
+        if (Tn1 < 1) continue;
+        const comfort = 2 * R + Td;
+        if (comfort < cmLo - EPS || comfort > cmHi + EPS) continue;
+        rows.push({ Tn1, Nr, R, Tt: Tn1 + Tn2 + Tn3, comfort });
+      }
+      if (rows.length) out.push({ Tn3, Tn2, Td, Tw, rows });
+    }
+  }
+  // stable, readable ordering
+  out.sort((a, b) => a.Td - b.Td || a.Tn3 - b.Tn3 || a.Tn2 - b.Tn2);
+  return out;
+}
+
+/* ---------- schematic generator ----------
+   Draws the double-switchback plan from tread counts + dimensions.
+   mode "definition": generic proportions with equation labels.
+   mode "actual": real counts/dimensions, drawn to scale.            */
+function buildStairSVG(o) {
+  const { Tn1, Tn2, Tn3, Td, Tw, mode } = o;
+  const Ew     = 2 * Tw + Tn2 * Td;          // full width
+  const EdR    = Tw + Tn3 * Td;              // depth on the Run 3 side
+  const Hbound = Tw + Math.max(Tn1, Tn3) * Td; // overall footprint depth
+
+  const CWmax = 248, CHmax = 300;            // content fits inside this box (px)
+  const scale = Math.min(CWmax / Ew, CHmax / Hbound);
+  const ML = 8, MT = 34, MR = 66, MB = 30;   // margins for dimension labels
+
+  const S = v => +(v * scale).toFixed(2);
+  const X = v => +(ML + v * scale).toFixed(2);
+  const Y = v => +(MT + v * scale).toFixed(2);
+  const vbW = (ML + Ew * scale + MR).toFixed(1);
+  const vbH = (MT + Hbound * scale + MB).toFixed(1);
+
+  const run2x = Tw, run2w = Tn2 * Td, l2x = Tw + Tn2 * Td;
+  const T = (x, y, t, rot) =>
+    `<text x="${x}" y="${y}" font-family="monospace" font-size="11.5" fill="#14222b" text-anchor="middle"${rot ? ` transform="rotate(${rot} ${x} ${y})"` : ""}>${t}</text>`;
+  const tick = "#9fb3bd";
+  let s = `<svg viewBox="0 0 ${vbW} ${vbH}" role="img" aria-label="Three-run double-switchback stair plan">`;
+
+  // Ew dimension (top)
+  const ewY = MT - 16;
+  s += `<line x1="${X(0)}" y1="${ewY}" x2="${X(Ew)}" y2="${ewY}" stroke="#b4452b"/>`;
+  s += `<line x1="${X(0)}" y1="${ewY-5}" x2="${X(0)}" y2="${ewY+5}" stroke="#b4452b"/>`;
+  s += `<line x1="${X(Ew)}" y1="${ewY-5}" x2="${X(Ew)}" y2="${ewY+5}" stroke="#b4452b"/>`;
+  s += `<text x="${X(Ew/2)}" y="${ewY-6}" font-family="monospace" font-size="11" fill="#b4452b" text-anchor="middle">${mode==="actual" ? `Ew = ${dec(Ew)}"` : "Ew = Tn2·Td + 2·Tw"}</text>`;
+
+  // Ed dimension (right side, to Run 3 bottom)
+  const edX = X(Ew) + 22, edMid = ((Y(0) + Y(EdR)) / 2).toFixed(1);
+  s += `<line x1="${edX}" y1="${Y(0)}" x2="${edX}" y2="${Y(EdR)}" stroke="#b4452b"/>`;
+  s += `<line x1="${edX-5}" y1="${Y(0)}" x2="${edX+5}" y2="${Y(0)}" stroke="#b4452b"/>`;
+  s += `<line x1="${edX-5}" y1="${Y(EdR)}" x2="${edX+5}" y2="${Y(EdR)}" stroke="#b4452b"/>`;
+  s += `<text x="${edX+14}" y="${edMid}" font-family="monospace" font-size="11" fill="#b4452b" text-anchor="middle" transform="rotate(90 ${edX+14} ${edMid})">${mode==="actual" ? `Ed = ${dec(EdR)}"` : "Ed = Tn3·Td + Tw"}</text>`;
+
+  // footprint
+  s += `<rect x="${X(0)}" y="${Y(0)}" width="${S(Ew)}" height="${S(Hbound)}" fill="none" stroke="#1f5f8b" stroke-width="1.5" stroke-dasharray="5 3"/>`;
+
+  // Landing 1
+  s += `<rect x="${X(0)}" y="${Y(0)}" width="${S(Tw)}" height="${S(Tw)}" fill="#cdd9e0" stroke="#4a5e69"/>`;
+  s += T(X(Tw/2), Y(Tw/2)+4, "Landing 1");
+
+  // Run 2
+  s += `<rect x="${X(run2x)}" y="${Y(0)}" width="${S(run2w)}" height="${S(Tw)}" fill="#dce6ec" stroke="#4a5e69"/>`;
+  for (let i = 1; i < Tn2; i++) s += `<line x1="${X(run2x+i*Td)}" y1="${Y(0)}" x2="${X(run2x+i*Td)}" y2="${Y(Tw)}" stroke="${tick}"/>`;
+  s += T(X(run2x+run2w/2), Y(Tw/2)+4, "Run 2", -90);
+
+  // Landing 2
+  s += `<rect x="${X(l2x)}" y="${Y(0)}" width="${S(Tw)}" height="${S(Tw)}" fill="#cdd9e0" stroke="#4a5e69"/>`;
+  s += T(X(l2x+Tw/2), Y(Tw/2)+4, "Landing 2");
+
+  // Run 1 (left)
+  s += `<rect x="${X(0)}" y="${Y(Tw)}" width="${S(Tw)}" height="${S(Tn1*Td)}" fill="#dce6ec" stroke="#4a5e69"/>`;
+  for (let i = 1; i < Tn1; i++) s += `<line x1="${X(0)}" y1="${Y(Tw+i*Td)}" x2="${X(Tw)}" y2="${Y(Tw+i*Td)}" stroke="${tick}"/>`;
+  s += T(X(Tw/2), Y(Tw+(Tn1-0.5)*Td)+4, "Run 1");
+
+  // Run 3 (right)
+  s += `<rect x="${X(l2x)}" y="${Y(Tw)}" width="${S(Tw)}" height="${S(Tn3*Td)}" fill="#dce6ec" stroke="#4a5e69"/>`;
+  for (let i = 1; i < Tn3; i++) s += `<line x1="${X(l2x)}" y1="${Y(Tw+i*Td)}" x2="${X(l2x+Tw)}" y2="${Y(Tw+i*Td)}" stroke="${tick}"/>`;
+  s += T(X(l2x+Tw/2), Y(Tw+0.6*Td)+4, "Run 3");
+
+  s += `</svg>`;
+  return s;
+}
+
+const DEFINITION = { Tn1: 12, Tn2: 4, Tn3: 7, Td: 1, Tw: 5, mode: "definition" };
+
+function captionFor(o) {
+  if (o.mode !== "actual")
+    return "Schematic — not to scale. Uniform tread depth Td and equal stair width Tw throughout. " +
+           "Ed is taken on the Run 3 side; Run 1 runs as long as the rise (Tn1) requires. " +
+           "Solve, then pick a configuration below to draw it here to scale.";
+  return `Selected layout, to scale — ${o.label}. ` +
+         `Tn1 ${o.Tn1} · Tn2 ${o.Tn2} · Tn3 ${o.Tn3} · Tt ${o.Tt} · ` +
+         `Td ${dec(o.Td)}" (${toFraction(o.Td)}) · Tw ${dec(o.Tw)}" (${toFraction(o.Tw)}) · ` +
+         `R ${dec(o.R)}" (${toFraction(o.R)}) · 2R+Td ${dec(o.comfort)}".`;
+}
+
+function renderSchematic(o) {
+  const fig = document.getElementById("schematic");
+  const ctrl = o.mode === "actual"
+    ? `<div class="schematic-ctrl"><button class="mini" id="showDef">Back to definition</button></div>`
+    : "";
+  fig.innerHTML = buildStairSVG(o) + `<figcaption>${captionFor(o)}</figcaption>` + ctrl;
+  if (o.mode === "actual") document.getElementById("showDef").addEventListener("click", showDefinition);
+}
+function showDefinition() {
+  renderSchematic(DEFINITION);
+  document.querySelectorAll("#results tr.sel").forEach(t => t.classList.remove("sel"));
+}
+
+/* ---------- selection ---------- */
+let LAST_SOLS = [];
+function selectConfig(g, r) {
+  const cfg = LAST_SOLS[g]; if (!cfg) return;
+  const row = cfg.rows[r]; if (!row) return;
+  renderSchematic({
+    Tn1: row.Tn1, Tn2: cfg.Tn2, Tn3: cfg.Tn3, Td: cfg.Td, Tw: cfg.Tw,
+    mode: "actual", R: row.R, comfort: row.comfort, Tt: row.Tt,
+    label: `Geometry ${g + 1} · config ${g + 1}.${r + 1}`
+  });
+  document.querySelectorAll("#results tr.sel").forEach(t => t.classList.remove("sel"));
+  const tr = document.querySelector(`#results tr[data-g="${g}"][data-r="${r}"]`);
+  if (tr) tr.classList.add("sel");
+  document.getElementById("schematic").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+/* ---------- no-solution analysis: least Ed reduction ----------
+   Geometry is linear in Ed, so for each (Tn2, Tn3, Nr) the set of Ed values
+   that yield a full solution is a closed interval. We collect those intervals
+   (using Ew, Rt and the ranges, which don't depend on Ed) and find the largest
+   feasible Ed at or below the user's value — i.e. the smallest reduction.      */
+function feasibleEdIntervals(p) {
+  const { Ew, Rt, twLo, twHi, tdLo, tdHi, cmLo, cmHi } = p;
+  const out = [];
+  for (let Tn3 = 1; Tn3 <= 80; Tn3++) {
+    for (let Tn2 = 1; Tn2 <= 80; Tn2++) {
+      const D = Tn2 - 2 * Tn3; if (D === 0) continue;
+      for (let Nr = 1; Nr <= 120; Nr++) {
+        const R = Rt / Nr;
+        if (!(R > CODE.R_MIN + EPS && R < CODE.R_MAX - EPS)) continue;
+        const Tn1 = Nr - (Tn2 + Tn3 + CODE.LN + 1); if (Tn1 < 1) continue;
+        // Td must satisfy both the depth range and the comfort range (R is fixed here)
+        const TdA = Math.max(tdLo, cmLo - 2 * R);
+        const TdB = Math.min(tdHi, cmHi - 2 * R);
+        if (TdA > TdB) continue;
+        // map the Td window to Ed:  Ed = (Ew - Td·D)/2
+        const a1 = (Ew - TdA * D) / 2, a2 = (Ew - TdB * D) / 2;
+        const edTdLo = Math.min(a1, a2), edTdHi = Math.max(a1, a2);
+        // map the Tw window to Ed:  Ed = (D·Tw + Tn3·Ew)/Tn2
+        const b1 = (D * twLo + Tn3 * Ew) / Tn2, b2 = (D * twHi + Tn3 * Ew) / Tn2;
+        const edTwLo = Math.min(b1, b2), edTwHi = Math.max(b1, b2);
+        const lo = Math.max(edTdLo, edTwLo), hi = Math.min(edTdHi, edTwHi);
+        if (lo <= hi + EPS) out.push([lo, hi]);
+      }
+    }
+  }
+  return out;
+}
+
+function suggestReduction(p) {
+  const ints = feasibleEdIntervals(p);
+  if (!ints.length) return { kind: "none" };
+  const Ed = p.Ed;
+  for (const [lo, hi] of ints) if (Ed >= lo - EPS && Ed <= hi + EPS) return { kind: "feasible" };
+
+  let best = -Infinity;
+  for (const [lo, hi] of ints) if (hi < Ed - EPS && hi > best) best = hi;
+
+  if (best === -Infinity) {                       // every feasible depth is deeper than Ed
+    let above = Infinity;
+    for (const [lo, hi] of ints) if (lo > Ed && lo < above) above = lo;
+    return { kind: "increase-only", needed: above - Ed };
+  }
+
+  // round the reduction UP to a clean 1/64" (keeps Ed at or below the feasible edge)
+  let red = Ed - best;
+  let redR = Math.ceil((red - EPS) * 64) / 64;
+  let newEd = Ed - redR;
+  if (solve({ ...p, Ed: newEd }).length) { red = redR; }   // clean value works
+  else { newEd = best; }                                   // fall back to exact edge
+  // final safety: nudge down a hair if the exact edge misses
+  let n = 0;
+  while (!solve({ ...p, Ed: newEd }).length && n < 0.05) { n += 0.001; newEd = best - n; }
+  return { kind: "reduce", newEd, reduction: Ed - newEd };
+}
+
+function renderEmpty(p, sug) {
+  LAST_SOLS = [];
+  const box = document.getElementById("results");
+  if (sug.kind === "reduce") {
+    box.innerHTML = `<div class="noflow">
+      <p class="nf-title">No layout fits this envelope depth.</p>
+      <p class="nf-body">With Ed = ${dec(p.Ed)}" no tread layout satisfies the width, depth, and comfort ranges together.
+        The smallest depth reduction that produces a solution is <b>${dec(sug.reduction)}"</b> (${toFraction(sug.reduction)}) —
+        shortening Ed to <b>${dec(sug.newEd)}"</b> (${toFraction(sug.newEd)}). Ew and Rt are unchanged.</p>
+      <button class="apply" id="applyEd" data-ed="${sug.newEd}">Reduce Ed to ${dec(sug.newEd)}" and solve</button>
+    </div>`;
+    document.getElementById("applyEd").addEventListener("click", e => {
+      setNum("Ed", parseFloat(e.currentTarget.dataset.ed));
+      run();
+    });
+  } else if (sug.kind === "increase-only") {
+    box.innerHTML = `<div class="noflow">
+      <p class="nf-title">No layout fits this envelope depth.</p>
+      <p class="nf-body">Reducing Ed won't help here — the nearest feasible depth is about <b>${dec(sug.needed)}"</b> deeper than your
+        current Ed, and depth can only be shortened. Widen the Tw, Td, or comfort range, or revisit Ew or Rt, then solve again.</p>
+    </div>`;
+  } else {
+    box.innerHTML = `<div class="noflow">
+      <p class="nf-title">No layout fits these inputs.</p>
+      <p class="nf-body">No envelope-depth reduction produces a solution. The width, depth, or comfort ranges are likely too narrow
+        for this Ew and rise — widen a range or revisit Ew / Rt, then solve again.</p>
+    </div>`;
+  }
+}
+
+/* ---------- rendering ---------- */
+function renderMessages(msgs) {
+  const box = document.getElementById("messages");
+  box.innerHTML = "";
+  msgs.forEach(m => {
+    const d = document.createElement("div");
+    d.className = "msg " + m.type;
+    d.innerHTML = `<span class="tag">${m.type === "error" ? "ERROR" : "WARNING"}</span><span>${m.text}</span>`;
+    box.appendChild(d);
+  });
+}
+
+function renderEcho(p) {
+  const e = document.getElementById("echo");
+  e.innerHTML =
+    `<span>Using —</span>` +
+    `<span><b>Tw</b> ${dec(p.twLo)}"–${dec(p.twHi)}"</span>` +
+    `<span><b>Td</b> ${dec(p.tdLo)}"–${dec(p.tdHi)}"</span>` +
+    `<span><b>2R+Td</b> ${dec(p.cmLo)}"–${dec(p.cmHi)}"</span>` +
+    `<span><b>Ed</b> ${dec(p.Ed)}"</span>` +
+    `<span><b>Ew</b> ${dec(p.Ew)}"</span>` +
+    `<span><b>Rt</b> ${dec(p.Rt)}"</span>`;
+}
+
+function renderResults(sols) {
+  const box = document.getElementById("results");
+  box.innerHTML = "";
+  LAST_SOLS = sols;
+  if (!sols.length) {
+    box.innerHTML = `<div class="empty">No layout satisfies every constraint with these inputs.
+      Widen a range, adjust the envelope, or check the floor-to-floor rise, then solve again.</div>`;
+    return;
+  }
+  const total = sols.reduce((n, s) => n + s.rows.length, 0);
+  const cnt = document.createElement("p");
+  cnt.className = "count";
+  cnt.textContent = `${sols.length} geometr${sols.length === 1 ? "y" : "ies"} · ${total} valid configuration${total === 1 ? "" : "s"}`;
+  box.appendChild(cnt);
+
+  const hint = document.createElement("p");
+  hint.className = "pick-hint";
+  hint.textContent = "Choose View on any row to draw that layout to scale at the top of the page.";
+  box.appendChild(hint);
+
+  sols.forEach((s, i) => {
+    const sec = document.createElement("div");
+    sec.className = "solution";
+    sec.innerHTML = `
+      <div class="sol-head">
+        <span class="sid">Geometry ${i + 1}</span>
+        <span class="pair">Tn3 <b>${s.Tn3}</b></span>
+        <span class="pair">Tn2 <b>${s.Tn2}</b></span>
+        <span class="pair">Td <b>${dec(s.Td)}"</b> <span class="frac">(${toFraction(s.Td)})</span></span>
+        <span class="pair">Tw <b>${dec(s.Tw)}"</b> <span class="frac">(${toFraction(s.Tw)})</span></span>
+      </div>
+      <div class="tscroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left"></th>
+              <th style="text-align:left">Config</th>
+              <th>Tn1</th><th>Nr (risers)</th><th>R</th><th>Tt</th><th>2R + Td</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${s.rows.map((r, j) => `
+              <tr data-g="${i}" data-r="${j}">
+                <td class="pickcell"><button class="pick" data-g="${i}" data-r="${j}">View</button></td>
+                <td class="idx">${i + 1}.${j + 1}</td>
+                <td>${r.Tn1}</td>
+                <td>${r.Nr}</td>
+                <td>${dec(r.R)}" <span class="frac">(${toFraction(r.R)})</span></td>
+                <td>${r.Tt}</td>
+                <td>${dec(r.comfort)}"</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+    box.appendChild(sec);
+  });
+}
+
+/* ---------- wiring ---------- */
+function num(id) { return parseFloat(document.getElementById(id).value); }
+function setNum(id, v) { document.getElementById(id).value = v; }
+
+function run() {
+  const msgs = [];
+  const raw = {
+    Ed: num("Ed"), Ew: num("Ew"), Rt: num("Rt"),
+    twLo: num("twLo"), twHi: num("twHi"),
+    tdLo: num("tdLo"), tdHi: num("tdHi"),
+    cmLo: num("cmLo"), cmHi: num("cmHi")
+  };
+
+  // basic completeness check
+  const required = ["Ed", "Ew", "Rt", "twLo", "twHi", "tdLo", "tdHi", "cmLo", "cmHi"];
+  if (required.some(k => Number.isNaN(raw[k]))) {
+    renderMessages([{ type: "error", text: "All fields must contain a number before solving." }]);
+    document.getElementById("results").innerHTML = "";
+    document.getElementById("echo").innerHTML = "";
+    return;
+  }
+
+  let [twLo, twHi] = validateTw(raw.twLo, raw.twHi, msgs);
+  let [tdLo, tdHi] = validateTd(raw.tdLo, raw.tdHi, msgs);
+  let [cmLo, cmHi] = validateComfort(raw.cmLo, raw.cmHi, msgs);
+
+  // write substituted values back into the form so the user sees what's in effect
+  setNum("twLo", dec(twLo)); setNum("twHi", dec(twHi));
+  setNum("tdLo", dec(tdLo)); setNum("tdHi", dec(tdHi));
+  setNum("cmLo", dec(cmLo)); setNum("cmHi", dec(cmHi));
+
+  const params = { Ed: raw.Ed, Ew: raw.Ew, Rt: raw.Rt, twLo, twHi, tdLo, tdHi, cmLo, cmHi };
+
+  renderMessages(msgs);
+  renderEcho(params);
+  const sols = solve(params);
+  if (sols.length) renderResults(sols);
+  else renderEmpty(params, suggestReduction(params));
+  showDefinition();   // any prior selection is now stale
+}
+
+const DEFAULTS = {
+  Ed: 160.40625, Ew: 137.0625, Rt: 166.375,
+  twLo: 36, twHi: 52, tdLo: 11, tdHi: 13, cmLo: 24, cmHi: 25
+};
+function reset() {
+  Object.entries(DEFAULTS).forEach(([k, v]) => setNum(k, v));
+  document.getElementById("messages").innerHTML = "";
+  document.getElementById("echo").innerHTML = "";
+  document.getElementById("results").innerHTML = "";
+  LAST_SOLS = [];
+  showDefinition();
+}
+
+document.getElementById("run").addEventListener("click", run);
+document.getElementById("reset").addEventListener("click", reset);
+document.querySelectorAll('input[type="number"]').forEach(inp =>
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") run(); }));
+
+// row "View" buttons (event delegation — the #results container persists across solves)
+document.getElementById("results").addEventListener("click", e => {
+  const btn = e.target.closest("button.pick");
+  if (!btn) return;
+  selectConfig(+btn.dataset.g, +btn.dataset.r);
+});
+
+// surface current code constants in the field hints
+document.getElementById("twLoNote").textContent = `code min ${CODE.TW_MIN}"`;
+document.getElementById("tdLoNote").textContent = `code min ${CODE.TD_MIN}"`;
+document.getElementById("tdHiNote").textContent = `code max ${CODE.TD_MAX}"`;
+
+// draw the definition graphic, then solve once with the worked example
+showDefinition();
+run();
+</script>
+</body>
+</html>
